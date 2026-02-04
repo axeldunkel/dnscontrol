@@ -191,11 +191,43 @@ type redirectorSettings struct {
 }
 
 type dnsRecord struct {
-	Type  string `json:"type"`
-	Name  string `json:"name"`
-	Value string `json:"value"`
-	Prio  int    `json:"prio,omitempty"`
-	TTL   int    `json:"ttl,omitempty"`
+	Type  string      `json:"type"`
+	Name  string      `json:"name"`
+	Value string      `json:"value"`
+	Prio  flexibleInt `json:"prio,omitempty"`
+	TTL   flexibleInt `json:"ttl,omitempty"`
+}
+
+// flexibleInt handles JSON fields that can be either an int or a string.
+// The Elitedomains API sometimes returns numeric fields as strings.
+type flexibleInt int
+
+func (f *flexibleInt) UnmarshalJSON(data []byte) error {
+	// Try to unmarshal as int first
+	var i int
+	if err := json.Unmarshal(data, &i); err == nil {
+		*f = flexibleInt(i)
+		return nil
+	}
+
+	// Try to unmarshal as string
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		if s == "" {
+			*f = 0
+			return nil
+		}
+		// Parse the string as int
+		var parsed int
+		if _, err := fmt.Sscanf(s, "%d", &parsed); err == nil {
+			*f = flexibleInt(parsed)
+			return nil
+		}
+	}
+
+	// Default to 0
+	*f = 0
+	return nil
 }
 
 type updateDomainRequest struct {
@@ -493,7 +525,7 @@ func (api *elitedomainsProvider) toRecordConfig(domain string, rec *dnsRecord) (
 func (api *elitedomainsProvider) toAPIRecord(rc *models.RecordConfig) dnsRecord {
 	rec := dnsRecord{
 		Type: rc.Type,
-		TTL:  int(rc.TTL),
+		TTL:  flexibleInt(rc.TTL),
 	}
 
 	// Handle label: empty means apex, use "@"
@@ -507,7 +539,7 @@ func (api *elitedomainsProvider) toAPIRecord(rc *models.RecordConfig) dnsRecord 
 	// Handle target based on record type
 	switch rc.Type {
 	case "MX":
-		rec.Prio = int(rc.MxPreference)
+		rec.Prio = flexibleInt(rc.MxPreference)
 		target := rc.GetTargetField()
 		// Remove trailing dot for API
 		rec.Value = strings.TrimSuffix(target, ".")
