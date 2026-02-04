@@ -139,48 +139,25 @@ func newElitedomains(m map[string]string, _ json.RawMessage) (*elitedomainsProvi
 }
 
 // API response structures
+//
+// NOTE: The Elitedomains API has inconsistent JSON typing. The documentation
+// shows certain fields as integers or strings, but the actual API responses
+// may return different types (e.g., integers as strings, booleans instead of
+// strings). The flexible types below handle these inconsistencies gracefully.
 
 type domainsResponse struct {
-	CurrentPage int          `json:"current_page"`
-	PerPage     int          `json:"per_page"`
+	CurrentPage flexibleInt  `json:"current_page"`
+	PerPage     flexibleInt  `json:"per_page"`
 	Data        []domainInfo `json:"data"`
 }
 
 type domainInfo struct {
 	Name               string              `json:"name"`
 	RedirectorSettings *redirectorSettings `json:"redirector_settings"`
-	AuthInfo           string              `json:"authinfo"`
+	AuthInfo           flexibleString      `json:"authinfo"`
 	AutoExpire         flexibleString      `json:"auto_expire"`
-	PaidUntil          string              `json:"paid_until"`
-	CreatedAt          string              `json:"created_at"`
-}
-
-// flexibleString handles JSON fields that can be either a string or a boolean.
-// The Elitedomains API returns "auto_expire" as either a date string or false.
-type flexibleString string
-
-func (f *flexibleString) UnmarshalJSON(data []byte) error {
-	// Try to unmarshal as string first
-	var s string
-	if err := json.Unmarshal(data, &s); err == nil {
-		*f = flexibleString(s)
-		return nil
-	}
-
-	// Try to unmarshal as bool (API returns false when not set)
-	var b bool
-	if err := json.Unmarshal(data, &b); err == nil {
-		if b {
-			*f = "true"
-		} else {
-			*f = ""
-		}
-		return nil
-	}
-
-	// If neither works, set to empty string
-	*f = ""
-	return nil
+	PaidUntil          flexibleString      `json:"paid_until"`
+	CreatedAt          flexibleString      `json:"created_at"`
 }
 
 type redirectorSettings struct {
@@ -198,26 +175,54 @@ type dnsRecord struct {
 	TTL   flexibleInt `json:"ttl,omitempty"`
 }
 
-// flexibleInt handles JSON fields that can be either an int or a string.
-// The Elitedomains API sometimes returns numeric fields as strings.
+// flexibleString handles JSON fields that can be either a string or a boolean.
+// The Elitedomains API may return false instead of an empty string for optional
+// fields like "auto_expire" when no value is set.
+type flexibleString string
+
+func (f *flexibleString) UnmarshalJSON(data []byte) error {
+	// Try string first (most common case)
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		*f = flexibleString(s)
+		return nil
+	}
+
+	// Try bool (API returns false for unset optional fields)
+	var b bool
+	if err := json.Unmarshal(data, &b); err == nil {
+		if b {
+			*f = "true"
+		} else {
+			*f = ""
+		}
+		return nil
+	}
+
+	*f = ""
+	return nil
+}
+
+// flexibleInt handles JSON fields that can be either an integer or a string.
+// The Elitedomains API documentation shows integers for fields like "ttl" and
+// "prio", but the actual API may return them as quoted strings.
 type flexibleInt int
 
 func (f *flexibleInt) UnmarshalJSON(data []byte) error {
-	// Try to unmarshal as int first
+	// Try int first (as documented)
 	var i int
 	if err := json.Unmarshal(data, &i); err == nil {
 		*f = flexibleInt(i)
 		return nil
 	}
 
-	// Try to unmarshal as string
+	// Try string (actual API behavior)
 	var s string
 	if err := json.Unmarshal(data, &s); err == nil {
 		if s == "" {
 			*f = 0
 			return nil
 		}
-		// Parse the string as int
 		var parsed int
 		if _, err := fmt.Sscanf(s, "%d", &parsed); err == nil {
 			*f = flexibleInt(parsed)
@@ -225,7 +230,6 @@ func (f *flexibleInt) UnmarshalJSON(data []byte) error {
 		}
 	}
 
-	// Default to 0
 	*f = 0
 	return nil
 }
@@ -310,7 +314,7 @@ func (api *elitedomainsProvider) getDomains() ([]domainInfo, error) {
 		allDomains = append(allDomains, domainsResp.Data...)
 
 		// Check if we got all domains
-		if len(domainsResp.Data) < domainsResp.PerPage {
+		if len(domainsResp.Data) < int(domainsResp.PerPage) {
 			break
 		}
 		page++
