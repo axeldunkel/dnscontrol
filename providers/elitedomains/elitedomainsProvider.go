@@ -150,9 +150,37 @@ type domainInfo struct {
 	Name               string              `json:"name"`
 	RedirectorSettings *redirectorSettings `json:"redirector_settings"`
 	AuthInfo           string              `json:"authinfo"`
-	AutoExpire         string              `json:"auto_expire"`
+	AutoExpire         flexibleString      `json:"auto_expire"`
 	PaidUntil          string              `json:"paid_until"`
 	CreatedAt          string              `json:"created_at"`
+}
+
+// flexibleString handles JSON fields that can be either a string or a boolean.
+// The Elitedomains API returns "auto_expire" as either a date string or false.
+type flexibleString string
+
+func (f *flexibleString) UnmarshalJSON(data []byte) error {
+	// Try to unmarshal as string first
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		*f = flexibleString(s)
+		return nil
+	}
+
+	// Try to unmarshal as bool (API returns false when not set)
+	var b bool
+	if err := json.Unmarshal(data, &b); err == nil {
+		if b {
+			*f = "true"
+		} else {
+			*f = ""
+		}
+		return nil
+	}
+
+	// If neither works, set to empty string
+	*f = ""
+	return nil
 }
 
 type redirectorSettings struct {
