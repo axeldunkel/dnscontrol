@@ -450,6 +450,29 @@ func (api *elitedomainsProvider) ListZones() ([]string, error) {
 	return zones, nil
 }
 
+// PrepDesiredRecords filters out unsupported record types from the desired records.
+// This must be called before diff2 to prevent unsupported records from appearing in the diff.
+// Elitedomains API only supports: A, AAAA, CNAME, MX, TXT, SPF
+// NS records are not supported and are managed separately via the registrar interface.
+func (api *elitedomainsProvider) PrepDesiredRecords(dc *models.DomainConfig) {
+	var recordsToKeep []*models.RecordConfig
+	for _, rec := range dc.Records {
+		// Skip NS records - they are managed by the registrar, not the DNS provider
+		// Elitedomains does not support NS records in the DNS array
+		if rec.Type == "NS" {
+			continue
+		}
+		// Only keep supported record types
+		switch rec.Type {
+		case "A", "AAAA", "CNAME", "MX", "TXT", "SPF":
+			recordsToKeep = append(recordsToKeep, rec)
+		default:
+			printer.Printf("WARNING: Skipping unsupported record type %s for domain %s\n", rec.Type, dc.Name)
+		}
+	}
+	dc.Records = recordsToKeep
+}
+
 // GetZoneRecordsCorrections returns a list of corrections that will turn existing records into dc.Records.
 func (api *elitedomainsProvider) GetZoneRecordsCorrections(dc *models.DomainConfig, existingRecords models.Records) ([]*models.Correction, int, error) {
 	var corrections []*models.Correction
@@ -459,6 +482,11 @@ func (api *elitedomainsProvider) GetZoneRecordsCorrections(dc *models.DomainConf
 	if err != nil {
 		return nil, 0, err
 	}
+
+	// Filter out unsupported record types BEFORE calling diff2
+	// Elitedomains API only supports: A, AAAA, CNAME, MX, TXT, SPF
+	// NS records are managed separately via the registrar interface
+	api.PrepDesiredRecords(dc)
 
 	// Use diff2 to calculate the changes needed
 	instructions, actualChangeCount, err := diff2.ByRecord(existingRecords, dc, nil)
