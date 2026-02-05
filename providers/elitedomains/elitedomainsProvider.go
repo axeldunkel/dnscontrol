@@ -400,24 +400,21 @@ func (api *elitedomainsProvider) GetZoneRecords(domain string, meta map[string]s
 		}
 
 		// Validate IP addresses for A and AAAA records before processing
-		// The API may return invalid placeholder values like "invalid IP" which would
-		// cause a fatal error later in prettyzone/sorting.go during zone processing
+		// The API may return invalid placeholder values or nameserver hostnames
+		// (like "ns1.elitedomains.de.") which would cause a fatal error later
+		// in prettyzone/sorting.go during zone processing.
+		// We silently skip these as they are internal API placeholders.
 		if rec.Type == "A" || rec.Type == "AAAA" {
 			ip, err := netip.ParseAddr(rec.Value)
 			if err != nil {
-				printer.Printf("WARNING: Skipping %s record '%s' with invalid IP '%s' for domain %s: %v\n",
-					rec.Type, rec.Name, rec.Value, domain, err)
+				// Silently skip - these are usually placeholder values from the API
 				continue
 			}
 			// Verify IPv4 for A records and IPv6 for AAAA records
 			if rec.Type == "A" && !ip.Is4() {
-				printer.Printf("WARNING: Skipping A record '%s' with non-IPv4 address '%s' for domain %s\n",
-					rec.Name, rec.Value, domain)
 				continue
 			}
 			if rec.Type == "AAAA" && !ip.Is6() {
-				printer.Printf("WARNING: Skipping AAAA record '%s' with non-IPv6 address '%s' for domain %s\n",
-					rec.Name, rec.Value, domain)
 				continue
 			}
 		}

@@ -143,6 +143,20 @@ The Elitedomains API has the following rate limits:
 
 ## Notes
 
+### Required A Record for Root
+
+**Important:** Elitedomains requires a valid A record for the root domain (`@`) for DNS to be active. Without this, other DNS records may not work. Always include an A record for `@` in your configuration:
+
+{% code title="dnsconfig.js" %}
+```javascript
+D("example.de", REG_ELITEDOMAINS, DnsProvider(DSP_ELITEDOMAINS),
+    A("@", "1.2.3.4"),  // Required!
+    TXT("@", "v=spf1 mx -all"),
+    // other records...
+);
+```
+{% endcode %}
+
 ### DNS Record Management
 
 The Elitedomains API does not support individual record creation, update, or deletion. Instead, all DNS records must be sent as a complete set in a single API call. DNSControl handles this automatically, but it means that any change (even to a single record) will re-submit all records for the domain.
