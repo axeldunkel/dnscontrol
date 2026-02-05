@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -391,11 +392,34 @@ func (api *elitedomainsProvider) GetZoneRecords(domain string, meta map[string]s
 	for i := range domainInfo.RedirectorSettings.DNS {
 		rec := &domainInfo.RedirectorSettings.DNS[i]
 
-		// Skip records with invalid/placeholder values that the API may return
-		if rec.Value == "" || rec.Value == "invalid IP" {
-			printer.Printf("WARNING: Skipping %s record '%s' with invalid value '%s' for domain %s\n",
-				rec.Type, rec.Name, rec.Value, domain)
+		// Skip records with empty values
+		if rec.Value == "" {
+			printer.Printf("WARNING: Skipping %s record '%s' with empty value for domain %s\n",
+				rec.Type, rec.Name, domain)
 			continue
+		}
+
+		// Validate IP addresses for A and AAAA records before processing
+		// The API may return invalid placeholder values like "invalid IP" which would
+		// cause a fatal error later in prettyzone/sorting.go during zone processing
+		if rec.Type == "A" || rec.Type == "AAAA" {
+			ip, err := netip.ParseAddr(rec.Value)
+			if err != nil {
+				printer.Printf("WARNING: Skipping %s record '%s' with invalid IP '%s' for domain %s: %v\n",
+					rec.Type, rec.Name, rec.Value, domain, err)
+				continue
+			}
+			// Verify IPv4 for A records and IPv6 for AAAA records
+			if rec.Type == "A" && !ip.Is4() {
+				printer.Printf("WARNING: Skipping A record '%s' with non-IPv4 address '%s' for domain %s\n",
+					rec.Name, rec.Value, domain)
+				continue
+			}
+			if rec.Type == "AAAA" && !ip.Is6() {
+				printer.Printf("WARNING: Skipping AAAA record '%s' with non-IPv6 address '%s' for domain %s\n",
+					rec.Name, rec.Value, domain)
+				continue
+			}
 		}
 
 		rc, err := api.toRecordConfig(domain, rec)
@@ -612,6 +636,12 @@ func (api *elitedomainsProvider) buildSettingsForDNSUpdate(domainInfo *domainInf
 
 // GetRegistrarCorrections returns corrections to update the domain's nameservers.
 func (api *elitedomainsProvider) GetRegistrarCorrections(dc *models.DomainConfig) ([]*models.Correction, error) {
+	// If no nameservers are specified in the config, don't make any changes
+	// This allows users to manage nameservers manually or use Elitedomains only as DNS provider
+	if len(dc.Nameservers) == 0 {
+		return nil, nil
+	}
+
 	// Get current domain info
 	domainInfo, err := api.getDomain(dc.Name)
 	if err != nil {
