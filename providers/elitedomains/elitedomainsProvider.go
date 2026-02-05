@@ -384,9 +384,21 @@ func (api *elitedomainsProvider) GetZoneRecords(domain string, meta map[string]s
 	}
 
 	for i := range domainInfo.RedirectorSettings.DNS {
-		rc, err := api.toRecordConfig(domain, &domainInfo.RedirectorSettings.DNS[i])
+		rec := &domainInfo.RedirectorSettings.DNS[i]
+
+		// Skip records with invalid/placeholder values that the API may return
+		if rec.Value == "" || rec.Value == "invalid IP" {
+			printer.Printf("WARNING: Skipping %s record '%s' with invalid value '%s' for domain %s\n",
+				rec.Type, rec.Name, rec.Value, domain)
+			continue
+		}
+
+		rc, err := api.toRecordConfig(domain, rec)
 		if err != nil {
-			return nil, err
+			// Log warning but continue processing other records
+			printer.Printf("WARNING: Failed to parse %s record '%s' for domain %s: %v\n",
+				rec.Type, rec.Name, domain, err)
+			continue
 		}
 		existingRecords = append(existingRecords, rc)
 	}
