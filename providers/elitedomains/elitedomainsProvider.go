@@ -161,10 +161,12 @@ type domainInfo struct {
 }
 
 type redirectorSettings struct {
-	Type   string      `json:"type"`
-	Method string      `json:"method,omitempty"`
-	DNS    []dnsRecord `json:"dns,omitempty"`
-	NS     []string    `json:"ns,omitempty"` // External nameservers (exactly 2 required)
+	Type    string            `json:"type"`
+	Method  string            `json:"method,omitempty"`
+	URL     string            `json:"url,omitempty"`     // Required for type "redirect"
+	DNS     []dnsRecord       `json:"dns,omitempty"`     // DNS records for type "dns" or "landing"
+	NS      []string          `json:"ns,omitempty"`      // External nameservers (exactly 2 required)
+	Options map[string]string `json:"options,omitempty"` // DNSSEC options
 }
 
 type dnsRecord struct {
@@ -438,18 +440,8 @@ func (api *elitedomainsProvider) GetZoneRecordsCorrections(dc *models.DomainConf
 		newRecords = append(newRecords, apiRec)
 	}
 
-	// Build the redirector settings
-	settings := redirectorSettings{
-		Type:   "landing",
-		Method: "redirect_sale_page",
-		DNS:    newRecords,
-	}
-
-	// Preserve existing redirector settings if available
-	if domainInfo.RedirectorSettings != nil {
-		settings.Type = domainInfo.RedirectorSettings.Type
-		settings.Method = domainInfo.RedirectorSettings.Method
-	}
+	// Build the redirector settings, preserving all existing fields
+	settings := api.buildSettingsForDNSUpdate(domainInfo, newRecords)
 
 	// Create a single correction that applies all changes
 	var msgs []string
@@ -571,6 +563,49 @@ func (api *elitedomainsProvider) debugPrintRecords(domain string) {
 	for _, r := range records {
 		printer.Printf("  %s %s %s %d\n", r.GetLabel(), r.Type, r.GetTargetField(), r.TTL)
 	}
+}
+
+// buildSettingsForDNSUpdate creates redirector settings for a DNS update,
+// preserving all existing settings that are not related to DNS records.
+// The Elitedomains API requires all settings to be sent in a single request,
+// so we must preserve fields like URL (for redirects), Method, Options, etc.
+func (api *elitedomainsProvider) buildSettingsForDNSUpdate(domainInfo *domainInfo, newRecords []dnsRecord) redirectorSettings {
+	// Default settings for pure DNS management
+	settings := redirectorSettings{
+		Type: "dns",
+		DNS:  newRecords,
+	}
+
+	// If there are existing settings, preserve them
+	if domainInfo.RedirectorSettings != nil {
+		existing := domainInfo.RedirectorSettings
+
+		// Preserve the type if it supports DNS records
+		switch existing.Type {
+		case "dns", "landing":
+			// These types support DNS records, keep the type
+			settings.Type = existing.Type
+			settings.Method = existing.Method
+			settings.URL = existing.URL
+			settings.Options = existing.Options
+		case "redirect":
+			// Redirect type requires URL, keep all redirect settings
+			// but also add DNS records (they may be ignored by API but we preserve them)
+			settings.Type = existing.Type
+			settings.Method = existing.Method
+			settings.URL = existing.URL
+			settings.Options = existing.Options
+		case "external":
+			// External nameservers - DNS records are not used
+			// Switch to "dns" type for DNS management
+			settings.Type = "dns"
+		default:
+			// Unknown type, use "dns" as safest option
+			settings.Type = "dns"
+		}
+	}
+
+	return settings
 }
 
 // Registrar interface implementation
