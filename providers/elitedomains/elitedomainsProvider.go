@@ -208,6 +208,7 @@ func (f *flexibleString) UnmarshalJSON(data []byte) error {
 // flexibleInt handles JSON fields that can be either an integer or a string.
 // The Elitedomains API documentation shows integers for fields like "ttl" and
 // "prio", but the actual API may return them as quoted strings.
+// When marshaling back to JSON, we output as integer (as documented).
 type flexibleInt int
 
 func (f *flexibleInt) UnmarshalJSON(data []byte) error {
@@ -234,6 +235,10 @@ func (f *flexibleInt) UnmarshalJSON(data []byte) error {
 
 	*f = 0
 	return nil
+}
+
+func (f flexibleInt) MarshalJSON() ([]byte, error) {
+	return json.Marshal(int(f))
 }
 
 type updateDomainRequest struct {
