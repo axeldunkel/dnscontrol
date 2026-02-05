@@ -566,46 +566,29 @@ func (api *elitedomainsProvider) debugPrintRecords(domain string) {
 }
 
 // buildSettingsForDNSUpdate creates redirector settings for a DNS update,
-// preserving all existing settings that are not related to DNS records.
+// preserving all existing settings and only replacing the DNS records.
 // The Elitedomains API requires all settings to be sent in a single request,
-// so we must preserve fields like URL (for redirects), Method, Options, etc.
+// so we must copy all existing fields (Type, Method, URL, Options, NS) and
+// only update the DNS array.
 func (api *elitedomainsProvider) buildSettingsForDNSUpdate(domainInfo *domainInfo, newRecords []dnsRecord) redirectorSettings {
-	// Default settings for pure DNS management
-	settings := redirectorSettings{
-		Type: "dns",
-		DNS:  newRecords,
-	}
-
-	// If there are existing settings, preserve them
-	if domainInfo.RedirectorSettings != nil {
-		existing := domainInfo.RedirectorSettings
-
-		// Preserve the type if it supports DNS records
-		switch existing.Type {
-		case "dns", "landing":
-			// These types support DNS records, keep the type
-			settings.Type = existing.Type
-			settings.Method = existing.Method
-			settings.URL = existing.URL
-			settings.Options = existing.Options
-		case "redirect":
-			// Redirect type requires URL, keep all redirect settings
-			// but also add DNS records (they may be ignored by API but we preserve them)
-			settings.Type = existing.Type
-			settings.Method = existing.Method
-			settings.URL = existing.URL
-			settings.Options = existing.Options
-		case "external":
-			// External nameservers - DNS records are not used
-			// Switch to "dns" type for DNS management
-			settings.Type = "dns"
-		default:
-			// Unknown type, use "dns" as safest option
-			settings.Type = "dns"
+	// If no existing settings, use default DNS type
+	if domainInfo.RedirectorSettings == nil {
+		return redirectorSettings{
+			Type: "dns",
+			DNS:  newRecords,
 		}
 	}
 
-	return settings
+	// Copy all existing settings and only replace DNS records
+	existing := domainInfo.RedirectorSettings
+	return redirectorSettings{
+		Type:    existing.Type,
+		Method:  existing.Method,
+		URL:     existing.URL,
+		NS:      existing.NS,
+		Options: existing.Options,
+		DNS:     newRecords,
+	}
 }
 
 // Registrar interface implementation
